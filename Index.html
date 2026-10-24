@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Vision Assistant Prototype</title>
+    <style>
+        /* Reset margins and make the app take up the whole screen */
+        body, html { 
+            margin: 0; 
+            padding: 0; 
+            height: 100%; 
+            background-color: #000000; 
+            color: #00FF00; 
+            font-family: Arial, sans-serif; 
+            overflow: hidden; 
+        }
+
+        /* The live camera feed goes behind everything */
+        #camera-feed {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: 1;
+        }
+
+        /* The giant invisible/transparent tap area for the user */
+        #tap-area {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.6); /* Slightly dark so text is readable */
+            font-size: 24px;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
+            cursor: pointer;
+        }
+
+        /* Developer logs to help you see what's happening behind the scenes */
+        #dev-logs {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            z-index: 20;
+            font-size: 14px;
+            text-shadow: 1px 1px 2px black;
+            pointer-events: none; /* Let clicks pass through to the tap area */
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Camera Video Element -->
+    <video id="camera-feed" autoplay playsinline muted></video>
+
+    <!-- The Giant Button Interface -->
+    <div id="tap-area" onclick="startAssistant()">
+        Tap anywhere to activate assistant
+    </div>
+
+    <!-- For Developer Use: See GPS and text data -->
+    <div id="dev-logs">System ready...</div>
+
+    <script>
+        const tapArea = document.getElementById('tap-area');
+        const logs = document.getElementById('dev-logs');
+        let isRunning = false;
+
+        // Developer log function to print on screen
+        function logAction(message) {
+            logs.innerHTML += "<br>" + message;
+            console.log(message);
+        }
+
+        // 1. THE VOICE (Text-to-Speech)
+        function speak(text, callback) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1.0; // Normal speed
+            
+            // When the voice finishes speaking, run the next step
+            if (callback) {
+                utterance.onend = callback;
+            }
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // 2. THE EARS (Speech Recognition)
+        function listenForDestination() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            
+            if (!SpeechRecognition) {
+                speak("Sorry, speech recognition is not supported on this browser.");
+                return;
+            }
+
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'en-IN'; // Set to Indian English, can change to 'hi-IN' for Hindi
+            
+            recognition.onstart = () => {
+                logAction("Listening for user voice...");
+                tapArea.innerHTML = "Listening...<br>Speak your destination.";
+            };
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                logAction("User said: " + transcript);
+                
+                // Confirm the destination back to the user
+                tapArea.innerHTML = "Navigating to:<br>" + transcript;
+                speak("Got it. You want to go to " + transcript + ". I am starting the camera and tracking your location to guide you.");
+            };
+
+            recognition.onerror = (event) => {
+                logAction("Mic error: " + event.error);
+                speak("I couldn't hear you clearly. Please tap the screen to try again.");
+                isRunning = false;
+            };
+
+            recognition.start();
+        }
+
+        // 3. THE EYES (Rear Camera)
+        function startCamera() {
+            // Request the rear environment camera
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+            .then(stream => {
+                document.getElementById('camera-feed').srcObject = stream;
+                logAction("Rear camera activated.");
+            })
+            .catch(err => {
+                logAction("Camera access denied or failed.");
+            });
+        }
+
+        // 4. THE LOCATION (GPS)
+        function startGPS() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    position => {
+                        const lat = position.coords.latitude.toFixed(5);
+                        const lon = position.coords.longitude.toFixed(5);
+                        logAction(`GPS Locked: Lat ${lat}, Lon ${lon}`);
+                    },
+                    error => {
+                        logAction("GPS access denied or failed.");
+                    }
+                );
+            }
+        }
+
+        // THE MASTER CONTROLLER (Triggered by the screen tap)
+        function startAssistant() {
+            if (isRunning) return; // Prevent double taps
+            isRunning = true;
+            
+            tapArea.innerHTML = "Initializing...";
+            
+            // Browser security requires a user click before it will speak or use camera.
+            // We use the first tap to bypass security and start everything.
+            speak("Assistant activated.", () => {
+                
+                // Start background sensors
+                startCamera();
+                startGPS();
+
+                // Ask the user for their command
+                speak("Where would you like to go?", () => {
+                    listenForDestination();
+                });
+            });
+        }
+    </script>
+</body>
+</html>
